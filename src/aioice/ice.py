@@ -14,7 +14,7 @@ from typing import Optional, Union, cast
 
 import ifaddr
 
-from . import mdns, stun, turn
+from . import mdns, mturn, stun, turn
 from .candidate import Candidate, candidate_foundation, candidate_priority
 from .utils import random_string
 
@@ -127,6 +127,43 @@ async def relayed_candidate(
         type="relay",
         related_address=related_address[0],
         related_port=related_address[1],
+    )
+    return protocol.local_candidate, protocol
+
+
+async def mturn_relayed_candidate(
+    component: int,
+    protocol_factory: Callable[[], "StunProtocol"],
+    mturn_server: tuple[str, int],
+    mturn_username: str,
+    mturn_password: str,
+) -> tuple[Candidate, "StunProtocol"]:
+    """
+    Connect to a Microsoft TURN (MS-TURN) server to obtain a relayed candidate.
+
+    MS-TURN uses the old STUN (RFC 3489) header format with a MAGIC-COOKIE
+    attribute and long-term credentials derived from a Teams call ticket and
+    session key.
+    """
+    _, protocol = await mturn.create_mturn_endpoint(
+        protocol_factory,
+        server_addr=mturn_server,
+        username=mturn_username,
+        password=mturn_password,
+    )
+
+    candidate_address = protocol.transport.get_extra_info("sockname")
+    related_address = protocol.transport.get_extra_info("related_address")
+    protocol.local_candidate = Candidate(
+        foundation=candidate_foundation("relay", "udp", candidate_address[0]),
+        component=component,
+        transport="udp",
+        priority=candidate_priority(component, "relay"),
+        host=candidate_address[0],
+        port=candidate_address[1],
+        type="relay",
+        related_address=related_address[0] if related_address else None,
+        related_port=related_address[1] if related_address else None,
     )
     return protocol.local_candidate, protocol
 
@@ -353,6 +390,9 @@ class Connection:
     :param turn_password: The password for the TURN server.
     :param turn_ssl: Whether to use TLS for the TURN server.
     :param turn_transport: The transport for TURN server, `"udp"` or `"tcp"`.
+    :param mturn_server: The address of the Microsoft TURN server or `None`.
+    :param mturn_username: The ticket/username for the MS-TURN server.
+    :param mturn_password: The session key/password for the MS-TURN server.
     :param use_ipv4: Whether to use IPv4 candidates.
     :param use_ipv6: Whether to use IPv6 candidates.
     :param transport_policy: Transport policy.
@@ -372,6 +412,9 @@ class Connection:
         turn_password: Optional[str] = None,
         turn_ssl: bool = False,
         turn_transport: str = "udp",
+        mturn_server: Optional[tuple[str, int]] = None,
+        mturn_username: Optional[str] = None,
+        mturn_password: Optional[str] = None,
         use_ipv4: bool = True,
         use_ipv6: bool = True,
         transport_policy: TransportPolicy = TransportPolicy.ALL,
@@ -403,6 +446,9 @@ class Connection:
         self.turn_password = turn_password
         self.turn_ssl = turn_ssl
         self.turn_transport = turn_transport
+        self.mturn_server = mturn_server
+        self.mturn_username = mturn_username
+        self.mturn_password = mturn_password
 
         # private
         self._closed = False
@@ -437,6 +483,7 @@ class Connection:
         if (
             stun_server is None
             and turn_server is None
+            and mturn_server is None
             and transport_policy == TransportPolicy.RELAY
         ):
             raise ValueError(
@@ -1032,6 +1079,20 @@ class Connection:
                         turn_password=self.turn_password,
                         turn_ssl=self.turn_ssl,
                         turn_transport=self.turn_transport,
+                    )
+                )
+            )
+
+        # Connect to Microsoft TURN (MS-TURN) server.
+        if self.mturn_server and self.mturn_username and self.mturn_password:
+            tasks.append(
+                asyncio.create_task(
+                    mturn_relayed_candidate(
+                        component=component,
+                        protocol_factory=lambda: StunProtocol(self),
+                        mturn_server=self.mturn_server,
+                        mturn_username=self.mturn_username,
+                        mturn_password=self.mturn_password,
                     )
                 )
             )
