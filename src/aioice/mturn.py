@@ -60,6 +60,7 @@ ATTR_MESSAGE_INTEGRITY = 0x0008
 ATTR_ERROR_CODE = 0x0009
 ATTR_LIFETIME = 0x000D
 ATTR_MAGIC_COOKIE = 0x000F            # MS-TURN specific, value must be 0x72c64bc6
+ATTR_BANDWIDTH = 0x0010               # Required in ALLOCATE requests
 ATTR_DATA = 0x0013
 ATTR_REALM = 0x0014
 ATTR_NONCE = 0x0015
@@ -480,6 +481,7 @@ class MTurnClient(asyncio.DatagramProtocol):
     def _make_allocate_request(self, authenticated: bool) -> MTurnMessage:
         msg = MTurnMessage(MTURN_ALLOCATE_REQUEST)
         msg.add_magic_cookie()
+        msg.add_attr(ATTR_BANDWIDTH, pack("!I", 750))  # 750 kbps (Teams default)
         msg.add_attr(ATTR_LIFETIME, pack("!I", self.lifetime))
         if authenticated and self._integrity_key:
             self._add_auth_attrs(msg)
