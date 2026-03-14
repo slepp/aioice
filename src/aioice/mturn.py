@@ -17,9 +17,8 @@ import ipaddress
 import logging
 import os
 import socket
-import struct
 from struct import pack, unpack
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +116,7 @@ def _unpack_address(data: bytes) -> tuple[str, int]:
 
 
 def _unpack_xor_address(data: bytes) -> tuple[str, int]:
-    """Unpack an old-style XOR-MAPPED-ADDRESS (XOR with magic cookie 0x2112A442)."""
+    """Unpack an old-style XOR-MAPPED-ADDRESS (XOR with MS-TURN magic cookie 0x72C64BC6)."""
     if len(data) < 4:
         raise ValueError("XOR address attribute too short")
     _, family = unpack("!BB", data[0:2])
@@ -381,8 +380,8 @@ class MTurnClient(asyncio.DatagramProtocol):
         logger.debug("MTurnClient < %s", msg)
         attrs = _parse_attrs(msg)
 
-        # Raw relay mode: data arrives without STUN wrapper
-        # (only active after Set-Active-Destination — not parsed here)
+        # Note: MS-TURN also supports raw relay mode via Set-Active-Destination,
+        # which is not implemented here. All data arrives as Data Indications.
 
         if msg.is_indication and msg.method == MTURN_METHOD_SEND:
             # Data Indication: relay to ICE layer
@@ -519,11 +518,10 @@ class MTurnClient(asyncio.DatagramProtocol):
                     current_delay, retry, remaining - 1, current_delay * 2
                 )
             else:
-                handle = loop.call_later(
-                    current_delay,
-                    lambda: fut.set_exception(MTurnTransactionTimeout())
-                    if not fut.done() else None,
-                )
+                def _timeout():
+                    if not fut.done():
+                        fut.set_exception(MTurnTransactionTimeout())
+                handle = loop.call_later(current_delay, _timeout)
             self._pending[msg.transaction_id] = (fut, remaining, handle, msg)
 
         retry(retries, delay)
@@ -555,7 +553,7 @@ class MTurnTransport:
     def close(self) -> None:
         asyncio.create_task(self._client.delete())
 
-    def get_extra_info(self, name: str, default=None):
+    def get_extra_info(self, name: str, default: Any = None) -> Any:
         if name == "sockname":
             return self._relayed_address
         if name == "related_address":
