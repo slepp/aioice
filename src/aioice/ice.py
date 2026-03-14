@@ -228,7 +228,7 @@ def validate_remote_candidate(candidate: Candidate) -> Candidate:
     """
     Check the remote candidate is supported.
     """
-    if candidate.type not in ["host", "relay", "srflx"]:
+    if candidate.type not in ["host", "relay", "srflx", "prflx"]:
         raise ValueError('Unexpected candidate type "%s"' % candidate.type)
     ipaddress.ip_address(candidate.host)
     return candidate
