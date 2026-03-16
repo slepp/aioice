@@ -239,13 +239,13 @@ class TurnClientMixin:
                 and self.username is not None
                 and self.password is not None
                 and (
-                    (error_code == 401 and "REALM" in e.response.attributes)
+                    (error_code in (300, 401) and "REALM" in e.response.attributes)
                     or (error_code == 438 and self.realm is not None)
                 )
             ):
                 # update long-term credentials
                 self.nonce = e.response.attributes["NONCE"]
-                if error_code == 401:
+                if error_code in (300, 401):
                     self.realm = e.response.attributes["REALM"]
                 self.integrity_key = make_integrity_key(
                     self.username, self.realm, self.password
